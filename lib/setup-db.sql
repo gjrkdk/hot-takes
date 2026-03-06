@@ -51,6 +51,12 @@ ALTER PUBLICATION supabase_realtime ADD TABLE ht_players;
 ALTER PUBLICATION supabase_realtime ADD TABLE ht_votes;
 ALTER PUBLICATION supabase_realtime ADD TABLE ht_guesses;
 
+-- Score increment functie
+CREATE OR REPLACE FUNCTION ht_increment_score(p_player_id UUID, p_pts INT)
+RETURNS VOID AS $$
+  UPDATE ht_players SET score = score + p_pts WHERE id = p_player_id;
+$$ LANGUAGE SQL;
+
 -- Auto-opruimen van oude rooms (ouder dan 24 uur)
 CREATE OR REPLACE FUNCTION cleanup_old_rooms() RETURNS void AS $$
   DELETE FROM ht_rooms WHERE created_at < NOW() - INTERVAL '24 hours';

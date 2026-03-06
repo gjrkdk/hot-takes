@@ -1,6 +1,6 @@
 import postgres from 'postgres'
 
-const DB = 'postgresql://postgres.bxwauxudberjooyeprjy:JFJCfE9Lq8A%3F%24QqC@aws-1-eu-central-1.pooler.supabase.com:5432/postgres'
+const DB = 'postgresql://postgres.kvvtddcffouebiviuxxp:Hd3AD9F7p4bD7j%40qg@aws-1-eu-central-1.pooler.supabase.com:5432/postgres'
 const sql = postgres(DB, { max: 1 })
 
 await sql`

@@ -17,9 +17,11 @@ export function Revealing({ room, players, votes, ikSpeler, huidigVraag }: Props
     .sort((a, b) => a.player_id.localeCompare(b.player_id))
 
   const currentRevealIndex = room.reveal_index
-  const onthuld = vraagVotes.slice(0, currentRevealIndex + 1)
-  const huidigStem = vraagVotes[currentRevealIndex]
+  const phase = room.reveal_phase ?? 'guess'
+  const huidigeStem = vraagVotes[currentRevealIndex]
+  const onthuldSpelerId = huidigeStem?.player_id
   const isHost = ikSpeler.is_host
+  const isLaatsteOnthulling = currentRevealIndex >= vraagVotes.length - 1
 
   // Laad guesses
   useEffect(() => {
@@ -30,7 +32,7 @@ export function Revealing({ room, players, votes, ikSpeler, huidigVraag }: Props
     }
     laad()
 
-    const sub = supabase.channel(`guesses:${room.id}`)
+    const sub = supabase.channel(`guesses:${room.id}:${room.current_question}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ht_guesses', filter: `room_id=eq.${room.id}` },
         async () => {
           const { data } = await supabase.from('ht_guesses').select('*')
@@ -45,10 +47,18 @@ export function Revealing({ room, players, votes, ikSpeler, huidigVraag }: Props
   // Reset mijnGok bij nieuwe onthulling
   useEffect(() => { setMijnGok(null) }, [currentRevealIndex])
 
+  // Gok-logica
   const heeftAlGeraden = guesses.some(g => g.guesser_id === ikSpeler.id && g.reveal_index === currentRevealIndex)
+  const kanRaden = onthuldSpelerId !== ikSpeler.id && !heeftAlGeraden && phase === 'guess'
+
+  // Aantal gokkers voor huidige reveal
+  const aantalGokkers = guesses.filter(g => g.reveal_index === currentRevealIndex).length
+  const nietOnthuldeSpelers = players.filter(p => p.id !== onthuldSpelerId)
+  const maxGokkers = nietOnthuldeSpelers.length >= 2 ? nietOnthuldeSpelers.length : 0
+  const iederheeftGeraden = maxGokkers === 0 || aantalGokkers >= maxGokkers
 
   async function gok(playerId: string) {
-    if (heeftAlGeraden || playerId === ikSpeler.id || huidigStem?.player_id === ikSpeler.id) return
+    if (!kanRaden || playerId === ikSpeler.id) return
     setMijnGok(playerId)
     await fetch('/api/action', {
       method: 'POST',
@@ -64,7 +74,17 @@ export function Revealing({ room, players, votes, ikSpeler, huidigVraag }: Props
     })
   }
 
-  async function onthulVolgende() {
+  async function onthulNaam() {
+    setLaden(true)
+    await fetch('/api/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reveal_name', roomId: room.id, playerId: ikSpeler.id }),
+    })
+    setLaden(false)
+  }
+
+  async function volgendeOnthulling() {
     setLaden(true)
     await fetch('/api/action', {
       method: 'POST',
@@ -74,26 +94,22 @@ export function Revealing({ room, players, votes, ikSpeler, huidigVraag }: Props
     setLaden(false)
   }
 
-  // Hoeveel hebben al geraden voor de huidige onthulling?
-  const aantalGokkers = guesses.filter(g => g.reveal_index === currentRevealIndex).length
-  // Alleen spelers die ook écht iemand kunnen raden (niet zichzelf, niet de onthuld speler)
-  // Met 2 spelers heeft niemand een keuze → maxGokkers = 0, knop meteen actief
-  const nietOnthuldeSpelers = players.filter(p => p.id !== huidigStem?.player_id)
-  const maxGokkers = nietOnthuldeSpelers.length >= 2 ? nietOnthuldeSpelers.length : 0
-  const iederheeftGeraden = maxGokkers === 0 || aantalGokkers >= maxGokkers
-  const isLaatsteOnthulling = currentRevealIndex >= vraagVotes.length - 1
+  // Wie raadde goed voor de huidige onthulling?
+  const correcteGokkers = guesses.filter(
+    g => g.reveal_index === currentRevealIndex && g.guessed_player_id === onthuldSpelerId
+  )
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', padding: '1.5rem', maxWidth: 420, margin: '0 auto' }}>
       {/* Header */}
       <div style={{ marginBottom: '1.5rem' }}>
         <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 0.5rem' }}>
-          Vraag {room.current_question + 1} · Onthulling
+          Vraag {room.current_question + 1} · Onthulling {currentRevealIndex + 1}/{vraagVotes.length}
         </p>
         <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: '#f0f0f5', lineHeight: 1.3 }}>{huidigVraag}</h2>
       </div>
 
-      {/* Resultaat totalen */}
+      {/* Stemtotalen */}
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem' }}>
         {[
           { label: '👍 Eens', count: vraagVotes.filter(v => v.vote).length, kleur: '#22c55e' },
@@ -106,58 +122,107 @@ export function Revealing({ room, players, votes, ikSpeler, huidigVraag }: Props
         ))}
       </div>
 
-      {/* Onthulde stemmen */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>
-          Wie stemde wat?
-        </p>
-
-        {onthuld.map((vote, idx) => {
-          const speler = players.find(p => p.id === vote.player_id)
-          const isHuidige = idx === currentRevealIndex
-          return (
-            <div key={vote.id} style={{
-              display: 'flex', alignItems: 'center', gap: '0.75rem',
-              padding: '0.875rem', borderRadius: '0.75rem',
-              background: isHuidige ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
-              border: isHuidige ? '1px solid rgba(255,255,255,0.15)' : '1px solid transparent',
-              animation: isHuidige ? 'fadeIn 0.3s ease' : 'none',
-            }}>
-              <span style={{ fontSize: '1.75rem' }}>{speler?.color_emoji ?? '❓'}</span>
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: 0, fontWeight: 700, color: '#f0f0f5' }}>{speler?.name ?? '?'}</p>
-                {isHuidige && maxGokkers > 0 && <p style={{ margin: '0.125rem 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
-                  {aantalGokkers}/{maxGokkers} hebben geraden
-                </p>}
-              </div>
-              <span style={{
-                padding: '0.375rem 0.875rem', borderRadius: '2rem', fontWeight: 700, fontSize: '0.875rem',
-                background: vote.vote ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)',
-                color: vote.vote ? '#22c55e' : '#ef4444',
+      {/* Eerder onthulde stemmen (altijd met naam) */}
+      {currentRevealIndex > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
+          {vraagVotes.slice(0, currentRevealIndex).map(vote => {
+            const speler = players.find(p => p.id === vote.player_id)
+            return (
+              <div key={vote.id} style={{
+                display: 'flex', alignItems: 'center', gap: '0.75rem',
+                padding: '0.625rem 0.875rem', borderRadius: '0.625rem',
+                background: 'rgba(255,255,255,0.03)', border: '1px solid transparent', opacity: 0.6,
               }}>
-                {vote.vote ? '👍 Eens' : '👎 Oneens'}
-              </span>
-            </div>
-          )
-        })}
+                <span style={{ fontSize: '1.25rem' }}>{speler?.color_emoji}</span>
+                <span style={{ flex: 1, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontSize: '0.9rem' }}>{speler?.name}</span>
+                <span style={{
+                  padding: '0.25rem 0.625rem', borderRadius: '2rem', fontWeight: 700, fontSize: '0.8rem',
+                  background: vote.vote ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                  color: vote.vote ? '#22c55e' : '#ef4444',
+                }}>{vote.vote ? '👍' : '👎'}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Huidige stem — anoniem of onthuld */}
+      <div style={{
+        background: 'rgba(255,255,255,0.06)', borderRadius: '1rem',
+        border: '1.5px solid rgba(255,255,255,0.12)',
+        padding: '1.25rem', marginBottom: '1.25rem',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {/* Naam/anoniem */}
+          <div style={{ flex: 1 }}>
+            {phase === 'guess' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: '50%',
+                  background: 'rgba(255,255,255,0.08)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '1.25rem',
+                }}>❓</div>
+                <div>
+                  <p style={{ margin: 0, fontWeight: 700, color: 'rgba(255,255,255,0.4)', fontStyle: 'italic' }}>Wie is dit?</p>
+                  {maxGokkers > 0 && (
+                    <p style={{ margin: '0.125rem 0 0', fontSize: '0.72rem', color: 'rgba(255,255,255,0.3)' }}>
+                      {aantalGokkers}/{maxGokkers} geraden
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ fontSize: '2rem' }}>{players.find(p => p.id === onthuldSpelerId)?.color_emoji}</span>
+                <div>
+                  <p style={{ margin: 0, fontWeight: 800, color: '#f0f0f5', fontSize: '1.1rem' }}>
+                    {players.find(p => p.id === onthuldSpelerId)?.name}
+                  </p>
+                  {correcteGokkers.length > 0 ? (
+                    <p style={{ margin: '0.125rem 0 0', fontSize: '0.72rem', color: '#22c55e' }}>
+                      ✓ {correcteGokkers.map(g => players.find(p => p.id === g.guesser_id)?.name).join(', ')} raadde{correcteGokkers.length === 1 ? '' : 'n'} het goed
+                    </p>
+                  ) : (
+                    <p style={{ margin: '0.125rem 0 0', fontSize: '0.72rem', color: '#ff9500' }}>
+                      😏 Niemand raadde het — +1 voor {players.find(p => p.id === onthuldSpelerId)?.name}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Stem badge */}
+          <span style={{
+            padding: '0.5rem 1rem', borderRadius: '2rem', fontWeight: 800, fontSize: '1rem',
+            background: huidigeStem?.vote ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)',
+            color: huidigeStem?.vote ? '#22c55e' : '#ef4444',
+            whiteSpace: 'nowrap',
+          }}>
+            {huidigeStem?.vote ? '👍 Eens' : '👎 Oneens'}
+          </span>
+        </div>
       </div>
 
-      {/* Raad-interface: toon als jij niet degene bent die onthuld wordt */}
-      {huidigStem && huidigStem.player_id !== ikSpeler.id && !heeftAlGeraden && (
-        <div style={{ marginBottom: '1rem' }}>
+      {/* Gok-interface — alleen tijdens 'guess' fase, niet als jij de onthulde bent */}
+      {phase === 'guess' && kanRaden && (
+        <div style={{ marginBottom: '1.25rem' }}>
           <p style={{ fontSize: '0.875rem', fontWeight: 700, color: '#ff9500', margin: '0 0 0.75rem', textAlign: 'center' }}>
             🤔 Van wie is deze stem?
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'center' }}>
             {players
-              .filter(p => p.id !== huidigStem.player_id && p.id !== ikSpeler.id)
+              .filter(p => p.id !== onthuldSpelerId && p.id !== ikSpeler.id)
               .map(p => (
-                <button key={p.id} onClick={() => gok(p.id)} style={{
+                <button key={p.id} onClick={() => gok(p.id)} disabled={!!mijnGok} style={{
                   display: 'flex', alignItems: 'center', gap: '0.5rem',
                   padding: '0.5rem 0.875rem', borderRadius: '2rem',
                   border: mijnGok === p.id ? '2px solid #ff9500' : '1.5px solid rgba(255,255,255,0.15)',
                   background: mijnGok === p.id ? 'rgba(255,149,0,0.15)' : 'rgba(255,255,255,0.04)',
-                  color: '#f0f0f5', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, fontSize: '0.875rem',
+                  color: '#f0f0f5', cursor: mijnGok ? 'default' : 'pointer',
+                  fontFamily: 'inherit', fontWeight: 600, fontSize: '0.875rem',
+                  opacity: mijnGok && mijnGok !== p.id ? 0.4 : 1,
                 }}>
                   {p.color_emoji} {p.name}
                 </button>
@@ -166,58 +231,81 @@ export function Revealing({ room, players, votes, ikSpeler, huidigVraag }: Props
         </div>
       )}
 
-      {heeftAlGeraden && huidigStem?.player_id !== ikSpeler.id && (
-        <p style={{ textAlign: 'center', color: '#22c55e', fontWeight: 600, fontSize: '0.875rem', marginBottom: '1rem' }}>
-          ✓ Gok verstuurd!
+      {/* Bevestiging eigen gok */}
+      {phase === 'guess' && heeftAlGeraden && onthuldSpelerId !== ikSpeler.id && (
+        <p style={{ textAlign: 'center', color: '#22c55e', fontWeight: 600, fontSize: '0.875rem', marginBottom: '1.25rem' }}>
+          ✓ Gok verstuurd — wachten op de rest...
         </p>
       )}
 
-      {/* Host: onthul volgende knop */}
+      {/* Jij bent de onthulde speler */}
+      {phase === 'guess' && onthuldSpelerId === ikSpeler.id && (
+        <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '0.875rem', marginBottom: '1.25rem', fontStyle: 'italic' }}>
+          🫣 Ze raden jouw stem...
+        </p>
+      )}
+
+      {/* HOST knoppen */}
       {isHost && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {!iederheeftGeraden && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-              <div style={{ display: 'flex', gap: '0.25rem' }}>
-                {Array.from({ length: maxGokkers }).map((_, i) => (
-                  <div key={i} style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: i < aantalGokkers ? '#22c55e' : 'rgba(255,255,255,0.15)',
-                    transition: 'background 0.2s',
-                  }} />
-                ))}
-              </div>
-              <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)' }}>
-                {aantalGokkers}/{maxGokkers} geraden
-              </span>
-            </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: 'auto' }}>
+          {phase === 'guess' && (
+            <>
+              {!iederheeftGeraden && maxGokkers > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                  <div style={{ display: 'flex', gap: '0.25rem' }}>
+                    {Array.from({ length: maxGokkers }).map((_, i) => (
+                      <div key={i} style={{
+                        width: 8, height: 8, borderRadius: '50%',
+                        background: i < aantalGokkers ? '#22c55e' : 'rgba(255,255,255,0.15)',
+                        transition: 'background 0.2s',
+                      }} />
+                    ))}
+                  </div>
+                  <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)' }}>
+                    {aantalGokkers}/{maxGokkers} geraden
+                  </span>
+                </div>
+              )}
+              <button
+                onClick={onthulNaam}
+                disabled={laden || !iederheeftGeraden}
+                style={{
+                  padding: '0.875rem', borderRadius: '0.75rem', border: 'none', fontFamily: 'inherit',
+                  fontSize: '1rem', fontWeight: 700,
+                  cursor: laden || !iederheeftGeraden ? 'not-allowed' : 'pointer',
+                  background: iederheeftGeraden ? 'linear-gradient(135deg, #ff4d00, #ff9500)' : 'rgba(255,255,255,0.08)',
+                  color: iederheeftGeraden ? 'white' : 'rgba(255,255,255,0.3)',
+                  opacity: laden ? 0.7 : 1,
+                  boxShadow: iederheeftGeraden ? '0 4px 20px rgba(255,100,0,0.3)' : 'none',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {!iederheeftGeraden ? '⏳ Wachten op gokken...' : '🔍 Onthul naam'}
+              </button>
+            </>
           )}
-          <button
-            onClick={onthulVolgende}
-            disabled={laden || !iederheeftGeraden}
-            style={{
-              padding: '0.875rem', borderRadius: '0.75rem', border: 'none', fontFamily: 'inherit',
-              fontSize: '1rem', fontWeight: 700,
-              cursor: laden || !iederheeftGeraden ? 'not-allowed' : 'pointer',
-              background: iederheeftGeraden
-                ? 'linear-gradient(135deg, #ff4d00, #ff9500)'
-                : 'rgba(255,255,255,0.08)',
-              color: iederheeftGeraden ? 'white' : 'rgba(255,255,255,0.3)',
-              opacity: laden ? 0.7 : 1,
-              boxShadow: iederheeftGeraden ? '0 4px 20px rgba(255,100,0,0.3)' : 'none',
-              transition: 'all 0.2s',
-            }}
-          >
-            {!iederheeftGeraden
-              ? '⏳ Wachten op gokken...'
-              : isLaatsteOnthulling
-                ? '📊 Scores bekijken'
-                : '➡️ Volgende onthulling'}
-          </button>
+
+          {phase === 'name' && (
+            <button
+              onClick={volgendeOnthulling}
+              disabled={laden}
+              style={{
+                padding: '0.875rem', borderRadius: '0.75rem', border: 'none', fontFamily: 'inherit',
+                fontSize: '1rem', fontWeight: 700, cursor: laden ? 'not-allowed' : 'pointer',
+                background: 'linear-gradient(135deg, #ff4d00, #ff9500)', color: 'white',
+                opacity: laden ? 0.7 : 1, boxShadow: '0 4px 20px rgba(255,100,0,0.3)',
+              }}
+            >
+              {isLaatsteOnthulling ? '📊 Scores bekijken' : '➡️ Volgende onthulling'}
+            </button>
+          )}
         </div>
       )}
+
+      {/* Niet-host */}
       {!isHost && (
-        <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '0.875rem' }}>
-          Wachten op de host...
+        <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '0.875rem', marginTop: 'auto' }}>
+          {phase === 'guess' ? 'Wachten tot iedereen heeft geraden...' : 'Wachten op de host...'}
         </p>
       )}
     </div>

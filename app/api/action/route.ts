@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
     const { data: room } = await supabase.from('ht_rooms').select('*').eq('id', roomId).single()
     if (!room) return NextResponse.json({ error: 'Room niet gevonden' }, { status: 404 })
     if (room.host_player_id !== playerId) return NextResponse.json({ error: 'Alleen de host kan starten' }, { status: 403 })
-    await supabase.from('ht_rooms').update({ status: 'voting', current_question: 0, reveal_index: 0 }).eq('id', roomId)
+    await supabase.from('ht_rooms').update({ status: 'voting', current_question: 0, reveal_index: 0, reveal_phase: 'guess' }).eq('id', roomId)
     return NextResponse.json({ ok: true })
   }
 
@@ -31,14 +31,25 @@ export async function POST(req: NextRequest) {
     const { data: votes } = await supabase.from('ht_votes').select('id').eq('room_id', roomId).eq('question_index', room.current_question)
 
     if ((players?.length ?? 0) > 0 && votes?.length === players?.length) {
-      // Iedereen heeft gestemd → ga naar revealing
-      await supabase.from('ht_rooms').update({ status: 'revealing', reveal_index: 0 }).eq('id', roomId)
+      // Iedereen heeft gestemd → ga naar revealing (anonieme fase)
+      await supabase.from('ht_rooms').update({ status: 'revealing', reveal_index: 0, reveal_phase: 'guess' }).eq('id', roomId)
     }
 
     return NextResponse.json({ ok: true })
   }
 
-  // ── reveal: onthul volgende stem ──────────────────────────────────────────
+  // ── reveal_name: toon naam van huidige stem (phase: guess → name) ─────────
+  if (action === 'reveal_name') {
+    const { data: room } = await supabase.from('ht_rooms').select('*').eq('id', roomId).single()
+    if (!room) return NextResponse.json({ error: 'Room niet gevonden' }, { status: 404 })
+    if (room.host_player_id !== playerId) return NextResponse.json({ error: 'Alleen host' }, { status: 403 })
+    if (room.reveal_phase !== 'guess') return NextResponse.json({ error: 'Al in naam-fase' }, { status: 400 })
+
+    await supabase.from('ht_rooms').update({ reveal_phase: 'name' }).eq('id', roomId)
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── reveal: ga naar volgende stem (phase: name → volgende guess / scores) ─
   if (action === 'reveal') {
     const { data: room } = await supabase.from('ht_rooms').select('*').eq('id', roomId).single()
     if (!room) return NextResponse.json({ error: 'Room niet gevonden' }, { status: 404 })
@@ -53,7 +64,7 @@ export async function POST(req: NextRequest) {
       await berekenEnUpdateScores(roomId, room.current_question)
       await supabase.from('ht_rooms').update({ status: 'scores' }).eq('id', roomId)
     } else {
-      await supabase.from('ht_rooms').update({ reveal_index: newRevealIndex }).eq('id', roomId)
+      await supabase.from('ht_rooms').update({ reveal_index: newRevealIndex, reveal_phase: 'guess' }).eq('id', roomId)
     }
     return NextResponse.json({ ok: true })
   }
@@ -62,6 +73,14 @@ export async function POST(req: NextRequest) {
   if (action === 'guess') {
     const { data: room } = await supabase.from('ht_rooms').select('*').eq('id', roomId).single()
     if (!room || room.status !== 'revealing') return NextResponse.json({ error: 'Niet in raad-fase' }, { status: 400 })
+    if (room.reveal_phase !== 'guess') return NextResponse.json({ error: 'Naam al onthuld, te laat' }, { status: 400 })
+
+    // Blokkeer als speler zichzelf probeert te raden (de onthulde stem)
+    const { data: votes } = await supabase.from('ht_votes').select('player_id')
+      .eq('room_id', roomId).eq('question_index', room.current_question)
+    const sorted = [...(votes ?? [])].sort((a, b) => a.player_id.localeCompare(b.player_id))
+    const onthuldSpelerId = sorted[room.reveal_index]?.player_id
+    if (playerId === onthuldSpelerId) return NextResponse.json({ error: 'Je kunt niet over jezelf raden' }, { status: 400 })
 
     await supabase.from('ht_guesses').upsert({
       room_id: roomId,
@@ -88,6 +107,7 @@ export async function POST(req: NextRequest) {
         status: 'voting',
         current_question: nextQ,
         reveal_index: 0,
+        reveal_phase: 'guess',
       }).eq('id', roomId)
     }
     return NextResponse.json({ ok: true })

@@ -21,6 +21,7 @@ export type Room = {
   current_question: number
   total_questions: number
   reveal_index: number        // welke stem is momenteel onthuld
+  reveal_phase: 'guess' | 'name'  // 'guess' = anoniem raden, 'name' = naam tonen
   host_player_id: string | null
   created_at: string
 }

@@ -9,7 +9,8 @@ export const supabase = createClient(URL, KEY)
 export type GameStatus =
   | 'lobby'      // wachten op spelers
   | 'voting'     // iedereen stemt
-  | 'revealing'  // votes worden onthuld, raad-ronde
+  | 'guessing'   // iedereen raadt wie wat stemde
+  | 'revealing'  // resultaat tonen
   | 'scores'     // scorebord na vraag
   | 'finished'   // eindstand
 
@@ -50,6 +51,6 @@ export type Guess = {
   room_id: string
   guesser_id: string
   question_index: number
-  reveal_index: number
-  guessed_player_id: string
+  target_player_id: string   // over wie gok je?
+  guessed_vote: boolean      // dacht je dat zij 👍 of 👎 stemden?
 }

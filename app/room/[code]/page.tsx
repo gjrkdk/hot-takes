@@ -5,6 +5,7 @@ import { supabase, type Room, type Player, type Vote } from '@/lib/supabase'
 import { getVraag } from '@/lib/questions'
 import { Lobby } from './Lobby'
 import { Voting } from './Voting'
+import { Guessing } from './Guessing'
 import { Revealing } from './Revealing'
 import { Scores } from './Scores'
 import { Finished } from './Finished'
@@ -103,6 +104,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     <div style={{ minHeight: '100vh' }}>
       {room.status === 'lobby' && <Lobby {...props} />}
       {room.status === 'voting' && <Voting {...props} />}
+      {room.status === 'guessing' && <Guessing {...props} />}
       {room.status === 'revealing' && <Revealing {...props} />}
       {room.status === 'scores' && <Scores {...props} />}
       {room.status === 'finished' && <Finished {...props} />}

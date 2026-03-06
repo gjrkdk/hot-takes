@@ -76,7 +76,10 @@ export function Revealing({ room, players, votes, ikSpeler, huidigVraag }: Props
 
   // Hoeveel hebben al geraden voor de huidige onthulling?
   const aantalGokkers = guesses.filter(g => g.reveal_index === currentRevealIndex).length
-  const maxGokkers = players.filter(p => p.id !== huidigStem?.player_id).length
+  // Alleen spelers die ook écht iemand kunnen raden (niet zichzelf, niet de onthuld speler)
+  // Met 2 spelers heeft niemand een keuze → maxGokkers = 0, knop meteen actief
+  const nietOnthuldeSpelers = players.filter(p => p.id !== huidigStem?.player_id)
+  const maxGokkers = nietOnthuldeSpelers.length >= 2 ? nietOnthuldeSpelers.length : 0
   const iederheeftGeraden = maxGokkers === 0 || aantalGokkers >= maxGokkers
   const isLaatsteOnthulling = currentRevealIndex >= vraagVotes.length - 1
 
@@ -123,7 +126,7 @@ export function Revealing({ room, players, votes, ikSpeler, huidigVraag }: Props
               <span style={{ fontSize: '1.75rem' }}>{speler?.color_emoji ?? '❓'}</span>
               <div style={{ flex: 1 }}>
                 <p style={{ margin: 0, fontWeight: 700, color: '#f0f0f5' }}>{speler?.name ?? '?'}</p>
-                {isHuidige && <p style={{ margin: '0.125rem 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
+                {isHuidige && maxGokkers > 0 && <p style={{ margin: '0.125rem 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
                   {aantalGokkers}/{maxGokkers} hebben geraden
                 </p>}
               </div>

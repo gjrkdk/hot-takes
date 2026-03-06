@@ -77,6 +77,8 @@ export function Revealing({ room, players, votes, ikSpeler, huidigVraag }: Props
   // Hoeveel hebben al geraden voor de huidige onthulling?
   const aantalGokkers = guesses.filter(g => g.reveal_index === currentRevealIndex).length
   const maxGokkers = players.filter(p => p.id !== huidigStem?.player_id).length
+  const iederheeftGeraden = maxGokkers === 0 || aantalGokkers >= maxGokkers
+  const isLaatsteOnthulling = currentRevealIndex >= vraagVotes.length - 1
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', padding: '1.5rem', maxWidth: 420, margin: '0 auto' }}>
@@ -169,14 +171,46 @@ export function Revealing({ room, players, votes, ikSpeler, huidigVraag }: Props
 
       {/* Host: onthul volgende knop */}
       {isHost && (
-        <button onClick={onthulVolgende} disabled={laden} style={{
-          padding: '0.875rem', borderRadius: '0.75rem', border: 'none', fontFamily: 'inherit',
-          fontSize: '1rem', fontWeight: 700, cursor: laden ? 'not-allowed' : 'pointer',
-          background: 'linear-gradient(135deg, #ff4d00, #ff9500)', color: 'white',
-          opacity: laden ? 0.7 : 1, boxShadow: '0 4px 20px rgba(255,100,0,0.3)',
-        }}>
-          {currentRevealIndex >= vraagVotes.length - 1 ? '📊 Scores bekijken' : '➡️ Volgende onthulling'}
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {!iederheeftGeraden && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.25rem' }}>
+                {Array.from({ length: maxGokkers }).map((_, i) => (
+                  <div key={i} style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: i < aantalGokkers ? '#22c55e' : 'rgba(255,255,255,0.15)',
+                    transition: 'background 0.2s',
+                  }} />
+                ))}
+              </div>
+              <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.4)' }}>
+                {aantalGokkers}/{maxGokkers} geraden
+              </span>
+            </div>
+          )}
+          <button
+            onClick={onthulVolgende}
+            disabled={laden || !iederheeftGeraden}
+            style={{
+              padding: '0.875rem', borderRadius: '0.75rem', border: 'none', fontFamily: 'inherit',
+              fontSize: '1rem', fontWeight: 700,
+              cursor: laden || !iederheeftGeraden ? 'not-allowed' : 'pointer',
+              background: iederheeftGeraden
+                ? 'linear-gradient(135deg, #ff4d00, #ff9500)'
+                : 'rgba(255,255,255,0.08)',
+              color: iederheeftGeraden ? 'white' : 'rgba(255,255,255,0.3)',
+              opacity: laden ? 0.7 : 1,
+              boxShadow: iederheeftGeraden ? '0 4px 20px rgba(255,100,0,0.3)' : 'none',
+              transition: 'all 0.2s',
+            }}
+          >
+            {!iederheeftGeraden
+              ? '⏳ Wachten op gokken...'
+              : isLaatsteOnthulling
+                ? '📊 Scores bekijken'
+                : '➡️ Volgende onthulling'}
+          </button>
+        </div>
       )}
       {!isHost && (
         <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '0.875rem' }}>
